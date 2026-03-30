@@ -1,15 +1,28 @@
-import { FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useSessions } from '../context/SessionsContext';
+import { RootStackParamList } from '../navigation/types';
 import { WeighSession } from '../types';
 import { calcSummary, formatDateTime, formatNumber } from '../utils/session';
 
-type ListScreenProps = {
-  sessions: WeighSession[];
-  onCreateSession: () => void;
-  onOpenSession: (session: WeighSession) => void;
-};
+type ListNavigation = NativeStackNavigationProp<RootStackParamList, 'List'>;
 
-export function ListScreen({ sessions, onCreateSession, onOpenSession }: ListScreenProps) {
+export function ListScreen() {
+  const navigation = useNavigation<ListNavigation>();
+  const { sessions } = useSessions();
+
+  const openSession = (session: WeighSession) => {
+    if (session.completed) {
+      navigation.navigate('Result', { sessionId: session.id });
+      return;
+    }
+
+    navigation.navigate('Detail', { sessionId: session.id });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.screenContainer}>
@@ -28,7 +41,7 @@ export function ListScreen({ sessions, onCreateSession, onOpenSession }: ListScr
           renderItem={({ item }) => {
             const summary = calcSummary(item);
             return (
-              <TouchableOpacity style={styles.sessionCard} onPress={() => onOpenSession(item)}>
+              <TouchableOpacity style={styles.sessionCard} onPress={() => openSession(item)}>
                 <View style={styles.cardRowBetween}>
                   <Text style={styles.sessionCardTitle}>{formatDateTime(item.createdAt)}</Text>
                   <Text style={item.completed ? styles.doneBadge : styles.pendingBadge}>
@@ -45,7 +58,7 @@ export function ListScreen({ sessions, onCreateSession, onOpenSession }: ListScr
           }}
         />
 
-        <TouchableOpacity style={styles.fab} onPress={onCreateSession}>
+        <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('Start')}>
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
       </View>
@@ -111,7 +124,7 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   sessionCardLine: {
-    fontSize: 14,
+    fontSize: 20,
     color: '#374151',
   },
   doneBadge: {

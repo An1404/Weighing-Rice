@@ -1,24 +1,135 @@
-import { FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TRU_BI_MOI_BAO } from '../constants';
-import { ResultTab, SessionSummary, WeighSession } from '../types';
-import { formatNumber } from '../utils/session';
+import { ITEMS_PER_COLUMN } from '../constants';
+import { useSessions } from '../context/SessionsContext';
+import { RootStackParamList } from '../navigation/types';
+import { ResultTab } from '../types';
+import { calcSummary, formatNumber } from '../utils/session';
 
-type ResultScreenProps = {
-  session: WeighSession | null;
-  summary: SessionSummary | null;
-  resultTab: ResultTab;
-  onChangeTab: (tab: ResultTab) => void;
-  onBack: () => void;
+type ResultRoute = RouteProp<RootStackParamList, 'Result'>;
+type ResultNavigation = NativeStackNavigationProp<RootStackParamList, 'Result'>;
+
+const screenWidth = Dimensions.get('window').width;
+const MAX_COLUMNS_PER_ROW = 5;
+const HORIZONTAL_PADDING = 16;
+const COLUMN_GAP = 10;
+const columnWidth =
+  (screenWidth - HORIZONTAL_PADDING * 2 - (MAX_COLUMNS_PER_ROW - 1) * COLUMN_GAP) / MAX_COLUMNS_PER_ROW;
+
+const sanitizeTareInput = (raw: string): string => {
+  const normalized = raw.replace(',', '.').replace(/[^\d.]/g, '');
+
+  if (!normalized) {
+    return '';
+  }
+
+  const [wholePart, ...fractionParts] = normalized.split('.');
+  const whole = wholePart === '' ? '0' : wholePart;
+
+  if (fractionParts.length === 0) {
+    return whole;
+  }
+
+  const fraction = fractionParts.join('').slice(0, 2);
+  return fraction.length > 0 ? `${whole}.${fraction}` : `${whole}.`;
 };
 
-export function ResultScreen({ session, summary, resultTab, onChangeTab, onBack }: ResultScreenProps) {
+const parseTareInput = (raw: string): { value: number | null; isValid: boolean } => {
+  const normalized = raw.trim().replace(',', '.');
+
+  if (!normalized) {
+    return { value: null, isValid: true };
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { value: null, isValid: false };
+  }
+
+  return { value: parsed, isValid: true };
+};
+
+export function ResultScreen() {
+  const navigation = useNavigation<ResultNavigation>();
+  const route = useRoute<ResultRoute>();
+  const { getSessionById, updateSession } = useSessions();
+
+  const session = getSessionById(route.params.sessionId);
+  const summary = useMemo(() => (session ? calcSummary(session) : null), [session]);
+  const visibleColumns = useMemo(() => {
+    if (!session) {
+      return [];
+    }
+
+    const totalColumns = Math.ceil(session.bags.length / ITEMS_PER_COLUMN);
+
+    return Array.from({ length: totalColumns }, (_, columnIndex) => {
+      const start = columnIndex * ITEMS_PER_COLUMN;
+      const values = session.bags.slice(start, start + ITEMS_PER_COLUMN);
+
+      if (!values.some((value) => value !== null)) {
+        return null;
+      }
+
+      return { columnIndex, values };
+    }).filter((column): column is { columnIndex: number; values: typeof session.bags } => column !== null);
+  }, [session]);
+
+  const [resultTab, setResultTab] = useState<ResultTab>('summary');
+  const [tareInput, setTareInput] = useState('');
+
+  const persistTareInput = useCallback(() => {
+    if (!session) {
+      return true;
+    }
+
+    const { value, isValid } = parseTareInput(tareInput);
+    if (!isValid) {
+      Alert.alert('Giá trị bì chưa hợp lệ', 'Vui lòng nhập tổng kg bì là số lớn hơn hoặc bằng 0.');
+      return false;
+    }
+
+    updateSession(session.id, (old) => {
+      const currentTare = old.totalTareKg;
+      if (currentTare === value) {
+        return old;
+      }
+
+      return {
+        ...old,
+        totalTareKg: value,
+      };
+    });
+
+    return true;
+  }, [session, tareInput, updateSession]);
+
+  const handleBackToList = useCallback(() => {
+    if (!persistTareInput()) {
+      return;
+    }
+
+    navigation.navigate('List');
+  }, [navigation, persistTareInput]);
+
+  useEffect(() => {
+    setResultTab('summary');
+  }, [route.params.sessionId]);
+
+  useEffect(() => {
+    setTareInput(typeof session?.totalTareKg === 'number' ? String(session.totalTareKg) : '');
+  }, [session?.id, session?.totalTareKg]);
+
   if (!session || !summary) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.fallbackWrap}>
           <Text style={styles.emptyTitle}>Không tìm thấy kết quả</Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={onBack}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('List')}>
             <Text style={styles.primaryButtonText}>Về danh sách</Text>
           </TouchableOpacity>
         </View>
@@ -30,7 +141,7 @@ export function ResultScreen({ session, summary, resultTab, onChangeTab, onBack 
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.screenContainer}>
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={onBack}>
+          <TouchableOpacity onPress={handleBackToList}>
             <Text style={styles.headerBack}>{'< Danh sách'}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Kết quả cân</Text>
@@ -40,13 +151,13 @@ export function ResultScreen({ session, summary, resultTab, onChangeTab, onBack 
         <View style={styles.tabRow}>
           <TouchableOpacity
             style={[styles.tabButton, resultTab === 'summary' && styles.tabButtonActive]}
-            onPress={() => onChangeTab('summary')}
+            onPress={() => setResultTab('summary')}
           >
-            <Text style={[styles.tabText, resultTab === 'summary' && styles.tabTextActive]}>Tổng quan</Text>
+            <Text style={[styles.tabText, resultTab === 'summary' && styles.tabTextActive]}>Tổng tiền</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, resultTab === 'bags' && styles.tabButtonActive]}
-            onPress={() => onChangeTab('bags')}
+            onPress={() => setResultTab('bags')}
           >
             <Text style={[styles.tabText, resultTab === 'bags' && styles.tabTextActive]}>Danh sách bao</Text>
           </TouchableOpacity>
@@ -56,24 +167,50 @@ export function ResultScreen({ session, summary, resultTab, onChangeTab, onBack 
           <View style={styles.summaryResultCard}>
             <ResultRow label="Tổng bao" value={String(summary.totalBags)} />
             <ResultRow label="Tổng khối lượng" value={`${formatNumber(summary.totalWeight)} kg`} />
-            <ResultRow label={`Trừ bì (${TRU_BI_MOI_BAO}kg/bao)`} value={`${formatNumber(summary.tare)} kg`} />
+            <View style={styles.resultRow}>
+              <Text style={styles.resultLabel}>Trừ bì</Text>
+              <View style={styles.tareInputWrap}>
+                <TextInput
+                  value={tareInput}
+                  onChangeText={(text) => setTareInput(sanitizeTareInput(text))}
+                  onBlur={() => {
+                    persistTareInput();
+                  }}
+                  onSubmitEditing={() => {
+                    persistTareInput();
+                  }}
+                  placeholder="0"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  style={styles.tareInput}
+                />
+                <Text style={styles.resultValue}>kg</Text>
+              </View>
+            </View>
             <ResultRow label="Còn lại" value={`${formatNumber(summary.netWeight)} kg`} />
             <ResultRow label="Giá lúa" value={`${formatNumber(session.price)} đ/kg`} />
             <ResultRow label="Thành tiền" value={`${formatNumber(summary.finalMoney)} đ`} isHighlight />
           </View>
         ) : (
-          <FlatList
-            data={summary.bagValues}
-            keyExtractor={(_, index) => `${session.id}-${index}`}
-            contentContainerStyle={styles.resultListContent}
-            ListEmptyComponent={<Text style={styles.emptyText}>Không có bao nào.</Text>}
-            renderItem={({ item, index }) => (
-              <View style={styles.resultListItem}>
-                <Text style={styles.resultListIndex}>Bao {index + 1}</Text>
-                <Text style={styles.resultListValue}>{formatNumber(item)} kg</Text>
+          <ScrollView contentContainerStyle={styles.columnsContainer}>
+            {visibleColumns.length === 0 ? (
+              <Text style={styles.emptyText}>Không có bao nào.</Text>
+            ) : (
+              <View style={styles.columnsRow}>
+                {visibleColumns.map(({ columnIndex, values }) => (
+                  <View key={columnIndex} style={[styles.columnCard, { width: columnWidth }]}>
+                    <Text style={styles.columnTitle}>{columnIndex + 1}</Text>
+                    {values.map((value, itemIndex) => (
+                      <View key={itemIndex} style={styles.columnItem}>
+                        <Text style={styles.columnItemValue}>{value === null ? '--' : formatNumber(value)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
               </View>
             )}
-          />
+          </ScrollView>
         )}
       </View>
     </SafeAreaView>
@@ -88,8 +225,8 @@ type ResultRowProps = {
 
 function ResultRow({ label, value, isHighlight = false }: ResultRowProps) {
   return (
-    <View style={styles.resultRow}>
-      <Text style={styles.resultLabel}>{label}</Text>
+    <View style={[styles.resultRow, {borderBottomWidth: isHighlight ? 0 : 1}]}>
+      <Text style={[styles.resultLabel,{fontSize: isHighlight? 24:20}]}>{label}</Text>
       <Text style={isHighlight ? styles.resultValueHighlight : styles.resultValue}>{value}</Text>
     </View>
   );
@@ -165,45 +302,72 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f3f4f6',
     paddingVertical: 10,
   },
+  tareInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tareInput: {
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    fontSize: 18,
+    color: '#111827',
+    fontWeight: '700',
+    textAlign: 'right',
+  },
   resultLabel: {
-    fontSize: 14,
+    fontSize: 20,
     color: '#4b5563',
     fontWeight: '600',
   },
   resultValue: {
-    fontSize: 14,
+    fontSize: 20,
     color: '#111827',
     fontWeight: '700',
   },
   resultValueHighlight: {
-    fontSize: 16,
+    fontSize: 24,
     color: '#2563eb',
     fontWeight: '800',
   },
-  resultListContent: {
-    paddingBottom: 20,
-    gap: 8,
+  columnsContainer: {
+    paddingVertical: 12,
   },
-  resultListItem: {
+  columnsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  columnCard: {
     backgroundColor: '#fff',
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 4,
+    overflow: 'hidden',
   },
-  resultListIndex: {
-    color: '#111827',
+  columnTitle: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  resultListValue: {
     color: '#2563eb',
-    fontSize: 14,
+    textAlign: 'center',
+  },
+  columnItem: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  columnItemValue: {
+    fontSize: 20,
+    color: '#111827',
     fontWeight: '700',
+    textAlign: 'center',
   },
   fallbackWrap: {
     flex: 1,

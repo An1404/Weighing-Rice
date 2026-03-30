@@ -5,14 +5,9 @@ export type WeighSession = {
   createdAt: number;
   price: number;
   bags: BagWeight[];
+  totalTareKg: number | null;
   completed: boolean;
 };
-
-export type ScreenState =
-  | { name: 'list' }
-  | { name: 'start' }
-  | { name: 'detail'; sessionId: string }
-  | { name: 'result'; sessionId: string };
 
 export type ResultTab = 'summary' | 'bags';
 

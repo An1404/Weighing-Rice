@@ -1,4 +1,3 @@
-import { TRU_BI_MOI_BAO } from '../constants';
 import { SessionSummary, WeighSession } from '../types';
 
 export const formatNumber = (value: number) =>
@@ -34,7 +33,7 @@ export const calcSummary = (session: WeighSession): SessionSummary => {
   const bagValues = session.bags.filter((bag): bag is number => bag !== null);
   const totalBags = bagValues.length;
   const totalWeight = bagValues.reduce((sum, bag) => sum + bag, 0);
-  const tare = totalBags * TRU_BI_MOI_BAO;
+  const tare = Math.max(session.totalTareKg ?? 0, 0);
   const netWeight = Math.max(totalWeight - tare, 0);
   const grossMoney = totalWeight * session.price;
   const finalMoney = netWeight * session.price;

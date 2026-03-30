@@ -1,18 +1,59 @@
-import { SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useState } from 'react';
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-type StartScreenProps = {
-  priceInput: string;
-  onChangePrice: (value: string) => void;
-  onBack: () => void;
-  onStart: () => void;
+import { useSessions } from '../context/SessionsContext';
+import { RootStackParamList } from '../navigation/types';
+import { parsePositiveNumber } from '../utils/session';
+
+type StartNavigation = NativeStackNavigationProp<RootStackParamList, 'Start'>;
+
+const formatVndInput = (value: string) => {
+  if (!value) {
+    return '';
+  }
+
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 
-export function StartScreen({ priceInput, onChangePrice, onBack, onStart }: StartScreenProps) {
+const sanitizeVndInput = (value: string) => value.replace(/[^\d]/g, '');
+
+export function StartScreen() {
+  const navigation = useNavigation<StartNavigation>();
+  const { createSession } = useSessions();
+  const [priceInput, setPriceInput] = useState('');
+
+  const displayedPrice = formatVndInput(sanitizeVndInput(priceInput));
+
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('List');
+  };
+
+  const handleStart = () => {
+    const parsedPrice = parsePositiveNumber(priceInput);
+
+    if (parsedPrice === null) {
+      Alert.alert('Giá lúa chưa hợp lệ', 'Vui lòng nhập đơn giá lớn hơn 0.');
+      return;
+    }
+
+    const sessionId = createSession(parsedPrice);
+    setPriceInput('');
+    navigation.replace('Detail', { sessionId });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.screenContainer}>
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={onBack}>
+          <TouchableOpacity onPress={handleBack}>
             <Text style={styles.headerBack}>{'< Quay lại'}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Bắt đầu cân</Text>
@@ -22,15 +63,15 @@ export function StartScreen({ priceInput, onChangePrice, onBack, onStart }: Star
         <View style={styles.startCard}>
           <Text style={styles.inputLabel}>Nhập giá lúa (đ/kg)</Text>
           <TextInput
-            value={priceInput}
-            onChangeText={onChangePrice}
-            placeholder="Ví dụ: 8200"
+            value={displayedPrice}
+            onChangeText={(text) => setPriceInput(sanitizeVndInput(text))}
+            placeholder="Ví dụ: 8,200"
             placeholderTextColor="#9ca3af"
             keyboardType="decimal-pad"
             style={styles.textInput}
           />
 
-          <TouchableOpacity style={styles.primaryButton} onPress={onStart}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleStart}>
             <Text style={styles.primaryButtonText}>Bắt đầu cân</Text>
           </TouchableOpacity>
         </View>
